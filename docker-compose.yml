@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: purchase_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    ports:
+      - "8123:8123"
+      - "9001:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    ports:
+      - "9000:9000"
+    volumes:
+      - minio_data:/data
+
+  spark-master:
+    image: bitnami/spark:3.3.1
+    environment:
+      SPARK_MODE: master
+    ports:
+      - "7077:7077"
+      - "8080:8080"
+    volumes:
+      - spark_logs:/opt/bitnami/spark/logs
+
+  spark-worker:
+    image: bitnami/spark:3.3.1
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+    ports:
+      - "8081:8081"
+    volumes:
+      - spark_logs:/opt/bitnami/spark/logs
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
+    volumes:
+      - ./api/app:/app/app
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - kafka
+      - clickhouse
+      - minio
+    environment:
+      DATABASE_URL: postgres://user:pass@postgres:5432/purchase_db
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CLICKHOUSE_URL: http://clickhouse:8123
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio123
+
+volumes:
+  pgdata:
+  clickhouse_data:
+  minio_data:
+  spark_logs:

@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+asyncpg
+clickhouse-driver
+aiokafka
+minio
+python-dotenv
+pydantic
+alembic
