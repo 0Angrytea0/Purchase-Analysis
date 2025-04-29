@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS clients (
 
 CREATE TABLE IF NOT EXISTS sellers (
     seller_id    SERIAL PRIMARY KEY,
+    first_name  VARCHAR(100) NOT NULL,
+    last_name   VARCHAR(100) NOT NULL,
     company_name VARCHAR(200) NOT NULL,
     email        VARCHAR(255) UNIQUE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
