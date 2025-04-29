@@ -30,6 +30,18 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  db-migrate:
+    image: flyway/flyway:9
+    depends_on:
+      - postgres
+    command: >
+      -url=jdbc:postgresql://postgres:5432/purchase_db
+      -user=user
+      -password=pass
+      migrate
+    volumes:
+      - ./db:/flyway/sql
+
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     ports:
