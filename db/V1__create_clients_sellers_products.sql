@@ -20,5 +20,6 @@ CREATE TABLE IF NOT EXISTS products (
     seller_id   INT NOT NULL REFERENCES sellers(seller_id) ON DELETE CASCADE,
     name        VARCHAR(200) NOT NULL,
     price       NUMERIC(12,2) NOT NULL,
+    quantity     INT NOT NULL DEFAULT 1,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

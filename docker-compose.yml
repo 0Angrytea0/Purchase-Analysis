@@ -1,6 +1,5 @@
-version: '3.8'
-
 services:
+  # ─── Zookeeper + Kafka ─────────────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.2.1
     environment:
@@ -15,16 +14,14 @@ services:
       - "9092:9092"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
+  # ─── PostgreSQL + Flyway ───────────────────────────────────
   postgres:
     image: postgres:15
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: purchase_db
+    env_file: .env
     ports:
       - "5432:5432"
     volumes:
@@ -34,33 +31,35 @@ services:
     image: flyway/flyway:9
     depends_on:
       - postgres
+    env_file: .env
     command: >
-      -url=jdbc:postgresql://postgres:5432/purchase_db
-      -user=user
-      -password=pass
+      -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      -user=${POSTGRES_USER}
+      -password=${POSTGRES_PASSWORD}
       migrate
     volumes:
       - ./db:/flyway/sql
 
+  # ─── ClickHouse ────────────────────────────────────────────
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     ports:
-      - "8123:8123"
-      - "9001:9000"
+      - "8123:8123"    # HTTP интерфейс
+      - "9001:9000"    # Native TCP (на хост 9001)
     volumes:
       - clickhouse_data:/var/lib/clickhouse
 
+  # ─── MinIO (S3) ────────────────────────────────────────────
   minio:
     image: minio/minio:latest
     command: server /data
-    environment:
-      MINIO_ACCESS_KEY: minio
-      MINIO_SECRET_KEY: minio123
+    env_file: .env
     ports:
       - "9000:9000"
     volumes:
       - minio_data:/data
 
+  # ─── Spark cluster ─────────────────────────────────────────
   spark-master:
     image: bitnami/spark:3.3.1
     environment:
@@ -83,27 +82,41 @@ services:
     volumes:
       - spark_logs:/opt/bitnami/spark/logs
 
+  # ─── FastAPI + Kafka producer (Dev1) ───────────────────────
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    command: uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
+    build: ./api
+    env_file: .env
     volumes:
-      - ./api/app:/app/app
+      - ./api/src:/app/src
     ports:
-      - "5000:5000"
+      - "8000:8000"
     depends_on:
       - postgres
       - kafka
       - clickhouse
       - minio
-    environment:
-      DATABASE_URL: postgres://user:pass@postgres:5432/purchase_db
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      CLICKHOUSE_URL: http://clickhouse:8123
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: minio
-      S3_SECRET_KEY: minio123
+
+  # ─── Spark batch ingestion (Dev2) ──────────────────────────
+  spark-batch:
+    build: ./ingestion
+    env_file: .env
+    depends_on:
+      - spark-master
+      - spark-worker
+      - postgres
+      - minio
+
+  # ─── Spark Structured Streaming (Dev2) ─────────────────────
+  spark-stream:
+    build: ./streaming
+    env_file: .env
+    depends_on:
+      - spark-master
+      - spark-worker
+      - kafka
+      - minio
+      - clickhouse
+    restart: unless-stopped
 
 volumes:
   pgdata:
