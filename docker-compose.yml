@@ -98,7 +98,9 @@ services:
 
   # ─── Spark batch ingestion (Dev2) ──────────────────────────
   spark-batch:
-    build: ./ingestion
+    build:
+      context: .  # только папка ingestion
+      dockerfile: ingestion/Dockerfile
     env_file: .env
     depends_on:
       - spark-master
@@ -108,7 +110,9 @@ services:
 
   # ─── Spark Structured Streaming (Dev2) ─────────────────────
   spark-stream:
-    build: ./streaming
+    build: 
+      context: .
+      dockerfile: streaming/Dockerfile
     env_file: .env
     depends_on:
       - spark-master
