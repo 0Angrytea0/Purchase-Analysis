@@ -22,7 +22,6 @@ target/
 
 project/target/
 dist/
-*.jar
 ivy-cache/
 
 logs/

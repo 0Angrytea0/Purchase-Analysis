@@ -1,5 +1,5 @@
 services:
-  # ─── Zookeeper + Kafka ─────────────────────────────────────
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.2.1
     environment:
@@ -18,7 +18,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-  # ─── PostgreSQL + Flyway ───────────────────────────────────
   postgres:
     image: postgres:15
     env_file: .env
@@ -40,26 +39,42 @@ services:
     volumes:
       - ./db:/flyway/sql
 
-  # ─── ClickHouse ────────────────────────────────────────────
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     ports:
-      - "8123:8123"    # HTTP интерфейс
-      - "9001:9000"    # Native TCP (на хост 9001)
+      - "8123:8123"    
+      - "9002:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
 
-  # ─── MinIO (S3) ────────────────────────────────────────────
   minio:
     image: minio/minio:latest
-    command: server /data
+    command: server /data --console-address ":9001"
     env_file: .env
     ports:
       - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 5s
+      retries: 5
     volumes:
       - minio_data:/data
 
-  # ─── Spark cluster ─────────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file: .env
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mc alias set myminio http://minio:9000 \
+          "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing myminio/"${MINIO_BUCKET}"
+
   spark-master:
     image: bitnami/spark:3.3.1
     environment:
@@ -82,7 +97,7 @@ services:
     volumes:
       - spark_logs:/opt/bitnami/spark/logs
 
-  # ─── FastAPI + Kafka producer (Dev1) ───────────────────────
+
   api:
     build: ./api
     env_file: .env
@@ -96,19 +111,22 @@ services:
       - clickhouse
       - minio
 
-  # ─── Spark batch ingestion (Dev2) ──────────────────────────
   spark-batch:
     build:
-      context: .  # только папка ingestion
+      context: .  
       dockerfile: ingestion/Dockerfile
     env_file: .env
+    environment:
+      - HADOOP_USER_NAME=spark
+    user: root
     depends_on:
       - spark-master
       - spark-worker
       - postgres
       - minio
+      - kafka-init
+      - minio-init
 
-  # ─── Spark Structured Streaming (Dev2) ─────────────────────
   spark-stream:
     build: 
       context: .
@@ -120,6 +138,36 @@ services:
       - kafka
       - minio
       - clickhouse
+    restart: unless-stopped
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.2.1
+    depends_on:
+      - kafka
+    env_file: .env
+    volumes:
+      - ./ingestion/scripts/create_topics.sh:/scripts/create_topics.sh:ro
+    entrypoint: [ "bash", "/scripts/create_topics.sh" ]
+    restart: "no"
+
+  scripts:
+    build:
+      context: ./ingestion/scripts/uploader       
+      dockerfile: Dockerfile
+    env_file: .env
+    depends_on:
+      - minio-init
+    volumes:
+      - ./ingestion/raw_data:/app/raw_data
+
+  raw-to-postgres-loader:
+    build:
+      context: ./ingestion/scripts/loader
+      dockerfile: Dockerfile
+    env_file: .env
+    depends_on:
+      - minio-init
+      - postgres
     restart: unless-stopped
 
 volumes:

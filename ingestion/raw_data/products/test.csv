@@ -1,0 +1,4 @@
+seller_id,name,price,quantity,created_at
+1,Widget_A,9.99,50,2025-05-09T12:00:00Z
+1,Gadget_B,19.50,30,2025-05-08T09:30:00Z
+1,Widget_C,14.25,20,2025-05-07T15:45:00Z

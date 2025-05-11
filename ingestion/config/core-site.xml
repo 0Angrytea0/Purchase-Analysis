@@ -1,0 +1,14 @@
+<configuration>
+  <property>
+    <name>hadoop.security.authentication</name>
+    <value>simple</value>
+  </property>
+  <property>
+    <name>hadoop.security.authorization</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>fs.s3a.aws.credentials.provider</name>
+    <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+  </property>
+</configuration>

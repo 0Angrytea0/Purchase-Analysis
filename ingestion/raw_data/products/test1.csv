@@ -1,0 +1,6 @@
+seller_id,name,price,quantity,created_at
+1,USB-C_Cable,9.99,150,2025-05-10T08:00:00Z
+2,Portable_Charger,19.99,75,2025-05-10T08:05:00Z
+2,Bluetooth_Speaker,49.99,30,2025-05-10T08:10:00Z
+2,Wireless_Mouse,24.99,60,2025-05-10T08:15:00Z
+1,Webcam_HD,39.99,25,2025-05-10T08:20:00Z
