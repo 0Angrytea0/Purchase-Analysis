@@ -52,16 +52,8 @@ def main():
     df_clients = read_postgres_table(spark, "clients")
     df_sellers = read_postgres_table(spark, "sellers")
 
-    bucket = os.getenv("MINIO_BUCKET")
-    raw_csv_path = f"s3a://{bucket}/raw/products/"
-    df_raw_products = (
-        spark.read
-            .format("csv")
-            .option("header", "true")
-            .option("inferSchema", "true")
-            .load(raw_csv_path)
-            .withColumn("created_at", to_timestamp(col("created_at")))
-    )
+    df_raw_products = read_postgres_table(spark, "products") \
+        .withColumn("created_at", to_timestamp(col("created_at")))
 
     df_stage_clients = df_clients.select(
         "client_id", "first_name", "last_name", "email", "signup_date"

@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
 
   zookeeper:
@@ -25,6 +27,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   db-migrate:
     image: flyway/flyway:9
@@ -42,7 +49,7 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
     ports:
-      - "8123:8123"    
+      - "8123:8123"
       - "9002:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
@@ -71,8 +78,7 @@ services:
       - sh
       - -c
       - |
-        mc alias set myminio http://minio:9000 \
-          "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+        mc alias set myminio http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing myminio/"${MINIO_BUCKET}"
 
   spark-master:
@@ -97,7 +103,6 @@ services:
     volumes:
       - spark_logs:/opt/bitnami/spark/logs
 
-
   api:
     build: ./api
     env_file: .env
@@ -111,9 +116,34 @@ services:
       - clickhouse
       - minio
 
+  kafka-init:
+    image: confluentinc/cp-kafka:7.2.1
+    depends_on:
+      - kafka
+    env_file: .env
+    volumes:
+      - ./ingestion/scripts/create_topics.sh:/scripts/create_topics.sh:ro
+    entrypoint: ["bash", "/scripts/create_topics.sh"]
+    restart: "no"
+
+  # 1) Сначала прогоняем loader, он читает CSV и кладёт в Postgres → вылетает
+  postgres-csv-loader:
+    build:
+      context: ./ingestion/scripts/loader
+      dockerfile: Dockerfile
+    env_file: .env
+    volumes:
+      - ./ingestion/raw_data:/app/raw_data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["python", "load_raw_to_pg.py"]
+    restart: "no"
+
+  # 2) Только после успешного loader запускаем Spark‐batch
   spark-batch:
     build:
-      context: .  
+      context: .
       dockerfile: ingestion/Dockerfile
     env_file: .env
     environment:
@@ -126,9 +156,11 @@ services:
       - minio
       - kafka-init
       - minio-init
+      - postgres-csv-loader
+    restart: "no"
 
   spark-stream:
-    build: 
+    build:
       context: .
       dockerfile: streaming/Dockerfile
     env_file: .env
@@ -138,37 +170,6 @@ services:
       - kafka
       - minio
       - clickhouse
-    restart: unless-stopped
-
-  kafka-init:
-    image: confluentinc/cp-kafka:7.2.1
-    depends_on:
-      - kafka
-    env_file: .env
-    volumes:
-      - ./ingestion/scripts/create_topics.sh:/scripts/create_topics.sh:ro
-    entrypoint: [ "bash", "/scripts/create_topics.sh" ]
-    restart: "no"
-
-  scripts:
-    build:
-      context: ./ingestion/scripts/uploader       
-      dockerfile: Dockerfile
-    env_file: .env
-    depends_on:
-      - minio-init
-    volumes:
-      - ./ingestion/raw_data:/app/raw_data
-
-  raw-to-postgres-loader:
-    build:
-      context: ./ingestion/scripts/loader
-      dockerfile: Dockerfile
-    env_file: .env
-    depends_on:
-      - minio-init
-      - postgres
-    restart: unless-stopped
 
 volumes:
   pgdata:
