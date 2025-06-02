@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import io
 import sys
@@ -14,7 +13,7 @@ pg = {
     "pwd": os.getenv("POSTGRES_PASSWORD"),
 }
 
-# Путь к локальным CSV
+
 LOCAL_DIR = os.getenv("CSV_LOCAL_DIR", "/app/raw_data/products")
 
 

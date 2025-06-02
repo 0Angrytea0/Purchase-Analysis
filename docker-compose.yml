@@ -2,11 +2,20 @@ version: "3.8"
 
 services:
 
+
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.2.1
+    image: bitnami/zookeeper:latest
+    env_file: .env
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc 127.0.0.1 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 
   kafka:
     image: confluentinc/cp-kafka:7.2.1
@@ -19,6 +28,12 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 
   postgres:
     image: postgres:15
@@ -28,10 +43,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
 
   db-migrate:
     image: flyway/flyway:9
@@ -46,13 +62,22 @@ services:
     volumes:
       - ./db:/flyway/sql
 
+
   clickhouse:
-    image: clickhouse/clickhouse-server:23.8
+    image: yandex/clickhouse-server:latest
+    env_file: .env
     ports:
-      - "8123:8123"
-      - "9002:9000"
+      - "8123:8123"  
+      - "9002:9000"  
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/ddl.sql:/docker-entrypoint-initdb.d/01-ddl.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --port 9000 --user default --query=\"SELECT 1\" > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 
   minio:
     image: minio/minio:latest
@@ -68,6 +93,7 @@ services:
     volumes:
       - minio_data:/data
 
+
   minio-init:
     image: minio/mc:latest
     depends_on:
@@ -81,6 +107,7 @@ services:
         mc alias set myminio http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing myminio/"${MINIO_BUCKET}"
 
+
   spark-master:
     image: bitnami/spark:3.3.1
     environment:
@@ -90,6 +117,8 @@ services:
       - "8080:8080"
     volumes:
       - spark_logs:/opt/bitnami/spark/logs
+   
+
 
   spark-worker:
     image: bitnami/spark:3.3.1
@@ -102,12 +131,13 @@ services:
       - "8081:8081"
     volumes:
       - spark_logs:/opt/bitnami/spark/logs
+  
 
   api:
-    build: ./api
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
     env_file: .env
-    volumes:
-      - ./api/src:/app/src
     ports:
       - "8000:8000"
     depends_on:
@@ -115,6 +145,12 @@ services:
       - kafka
       - clickhouse
       - minio
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 
   kafka-init:
     image: confluentinc/cp-kafka:7.2.1
@@ -126,21 +162,24 @@ services:
     entrypoint: ["bash", "/scripts/create_topics.sh"]
     restart: "no"
 
-  # 1) Сначала прогоняем loader, он читает CSV и кладёт в Postgres → вылетает
+
+
   postgres-csv-loader:
     build:
-      context: ./ingestion/scripts/loader
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./ingestion/scripts/loader/Dockerfile
     env_file: .env
     volumes:
       - ./ingestion/raw_data:/app/raw_data:ro
     depends_on:
       postgres:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     entrypoint: ["python", "load_raw_to_pg.py"]
     restart: "no"
 
-  # 2) Только после успешного loader запускаем Spark‐batch
+
   spark-batch:
     build:
       context: .
@@ -157,19 +196,84 @@ services:
       - kafka-init
       - minio-init
       - postgres-csv-loader
-    restart: "no"
+    restart: "no"         
+
 
   spark-stream:
     build:
       context: .
-      dockerfile: streaming/Dockerfile
+      dockerfile: ./streaming/Dockerfile
     env_file: .env
+    environment:
+      - HADOOP_USER_NAME=spark
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      - CLICKHOUSE_DB=purchase_analysis
     depends_on:
       - spark-master
       - spark-worker
       - kafka
+      - clickhouse
+    volumes:
+      - ./streaming/src:/app/src
+    
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1' | clickhouse-client --host clickhouse --port 9002 --database ${CLICKHOUSE_DB} > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: "no"
+
+
+  iceberg_to_ch:
+    build:
+      context: . 
+      dockerfile: ./iceberg_to_ch/Dockerfile
+    env_file: .env
+    depends_on:
+      - spark-master
+      - spark-worker
       - minio
       - clickhouse
+      - spark-batch
+    volumes:
+      - ./ingestion/config/core-site.xml:/opt/bitnami/spark/conf/core-site.xml
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1' | clickhouse-client --host clickhouse --port 9002 --database ${CLICKHOUSE_DB} > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: "no"
+
+
+  ch-views-init:
+      build:
+        context: ./clickhouse
+        dockerfile: Dockerfile
+      env_file: .env
+      depends_on:
+        clickhouse:
+          condition: service_healthy
+      entrypoint: ["python", "create_views.py"]
+      restart: "no"
+
+  streamlit:
+    build:
+      context: ./streamlit
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "8501:8501"
+    depends_on:
+      - clickhouse
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_DB=purchase_analysis
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+    restart: "no"
+
 
 volumes:
   pgdata:

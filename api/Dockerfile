@@ -1,14 +1,12 @@
-FROM python:3.10-slim
+FROM python:3.10
+
 WORKDIR /app
 
-# Установим Python-зависимости
-COPY requirements.txt .
+COPY ./api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код FastAPI
-COPY src/ ./src/
+COPY ./api/src/ ./src/
 
-EXPOSE 8000
+ENV PYTHONPATH=/app
 
-# Запуск Uvicorn
-CMD ["uvicorn","src.app:app","--host","0.0.0.0","--port","8000","--reload"]
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

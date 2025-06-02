@@ -8,3 +8,12 @@ minio
 python-dotenv
 pydantic
 alembic
+psycopg2-binary
+confluent-kafka
+slowapi
+python-multipart
+passlib
+python-jose[cryptography]
+pydantic[email]
+aiokafka
+asyncio

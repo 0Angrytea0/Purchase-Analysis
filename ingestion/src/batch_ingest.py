@@ -1,5 +1,3 @@
-# ingestion/src/batch_ingest.py
-
 import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, to_timestamp
@@ -66,7 +64,10 @@ def main():
     df_stage_products = df_raw_products.select(
         "seller_id", "name", "price", "quantity", "created_at"
     )
+    df_purchases = read_postgres_table(spark, "purchases") \
+        .withColumn("purchased_at", to_timestamp(col("purchased_at")))
 
+    df_purchases.writeTo("iceberg_catalog.stage.purchases").createOrReplace()
     df_stage_clients.writeTo("iceberg_catalog.stage.clients").createOrReplace()
     df_stage_sellers.writeTo("iceberg_catalog.stage.sellers").createOrReplace()
     df_stage_products.writeTo("iceberg_catalog.stage.products").createOrReplace()
