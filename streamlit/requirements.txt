@@ -1,0 +1,5 @@
+streamlit>=1.30.0
+clickhouse-connect
+clickhouse-driver
+pandas
+python-dotenv

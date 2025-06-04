@@ -5,7 +5,6 @@ import sys
 import psycopg2
 from psycopg2 import sql
 
-# Параметры подключения к Postgres берутся из .env
 pg = {
     "host": os.getenv("POSTGRES_HOST"),
     "port": os.getenv("POSTGRES_PORT"),
@@ -14,7 +13,6 @@ pg = {
     "pwd": os.getenv("POSTGRES_PASSWORD"),
 }
 
-# Путь к локальным CSV
 LOCAL_DIR = os.getenv("CSV_LOCAL_DIR", "/app/raw_data/products")
 
 

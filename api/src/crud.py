@@ -1,1 +1,0 @@
-#CRUD-роутеры: clients/, sellers/, products/, purchases/
